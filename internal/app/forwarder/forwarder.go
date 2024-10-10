@@ -323,7 +323,7 @@ func (w *findingWorker) Run(ctx context.Context, g *errgroup.Group) error {
 							w.metrics.SentAlerts.With(prometheus.Labels{metrics.Channel: consumer.channel, metrics.Status: metrics.StatusOk}).Inc()
 							w.ackMessage(msg)
 
-							w.log.Info(fmt.Sprintf("Consumer: %s succefully sent finding to %s, alertId %s", consumer.Name, consumer.channel, finding.AlertId),
+							w.log.Info(fmt.Sprintf("Consumer: %s successfully sent finding to %s, alertId %s", consumer.Name, consumer.channel, finding.AlertId),
 								slog.Attr{
 									Key:   `alertId`,
 									Value: slog.StringValue(finding.AlertId),
@@ -412,18 +412,18 @@ func findingToUniqueHash(f *databus.FindingDtoJson) string {
 	var buffer bytes.Buffer
 
 	if f.UniqueKey != nil {
-		return *f.UniqueKey
+		buffer.WriteString(f.Team)
+		buffer.WriteString(f.BotName)
+		buffer.WriteString(*f.UniqueKey)
+	} else {
+		buffer.WriteString(f.Team)
+		buffer.WriteString(f.BotName)
+		buffer.WriteString(f.AlertId)
+		buffer.WriteString(f.Name)
+		buffer.WriteString(string(f.Severity))
 	}
 
-	buffer.WriteString(f.Team)
-	buffer.WriteString(f.BotName)
-	buffer.WriteString(f.AlertId)
-	buffer.WriteString(f.Name)
-	buffer.WriteString(string(f.Severity))
-
-	uniqueKey := computeSHA256Hash(buffer.Bytes())
-
-	return uniqueKey
+	return computeSHA256Hash(buffer.Bytes())
 }
 
 func (w *findingWorker) SetSendingStatus(ctx context.Context, countKey, statusKey string) (bool, error) {
