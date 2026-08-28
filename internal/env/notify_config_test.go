@@ -158,6 +158,42 @@ func Test_config_is_rejected_when(t *testing.T) {
 			},
 			wantErr: "cannot deliver severity 'Medium' to OpsGenie",
 		},
+		{
+			name: "duplicated_telegram_channel_id",
+			mutate: func(c *NotificationConfig) {
+				c.TelegramChannels = append(c.TelegramChannels, TelegramChannel{ID: "tg1", ChatID: "someone-else"})
+			},
+			wantErr: "telegram_channels[0] and telegram_channels[1] both declare the id 'tg1'",
+		},
+		{
+			name: "duplicated_discord_channel_id",
+			mutate: func(c *NotificationConfig) {
+				c.DiscordChannels = []DiscordChannel{{ID: "dc1"}, {ID: "dc1"}}
+			},
+			wantErr: "discord_channels[0] and discord_channels[1] both declare the id 'dc1'",
+		},
+		{
+			name: "duplicated_opsgenie_channel_id",
+			mutate: func(c *NotificationConfig) {
+				c.OpsGenieChannels = []OpsGenieChannel{{ID: "og1"}, {ID: "og1"}}
+			},
+			wantErr: "opsgenie_channels[0] and opsgenie_channels[1] both declare the id 'og1'",
+		},
+		{
+			name: "duplicated_slack_channel_id",
+			mutate: func(c *NotificationConfig) {
+				c.SlackChannels = []SlackChannel{{ID: "sl1"}, {ID: "sl1"}}
+			},
+			wantErr: "slack_channels[0] and slack_channels[1] both declare the id 'sl1'",
+		},
+		{
+			name: "empty_channel_id",
+			mutate: func(c *NotificationConfig) {
+				c.TelegramChannels = []TelegramChannel{{ID: ""}}
+				c.Consumers[0].ChannelID = ""
+			},
+			wantErr: "telegram_channels[0] has an empty id",
+		},
 	}
 
 	for _, tt := range tests {

@@ -195,25 +195,46 @@ func validateUniqueConsumerNames(cfg *NotificationConfig) error {
 	return nil
 }
 
+// collectChannelIDs indexes the declarations of one channel type by id and rejects empty or duplicated ones
+func collectChannelIDs[T any](kind string, channels []T, id func(T) string) (map[string]int, error) {
+	ids := make(map[string]int, len(channels))
+
+	for i, channel := range channels {
+		channelID := id(channel)
+		if channelID == "" {
+			return nil, fmt.Errorf("%s_channels[%d] has an empty id", kind, i)
+		}
+
+		if first, exists := ids[channelID]; exists {
+			return nil, fmt.Errorf("%s_channels[%d] and %s_channels[%d] both declare the id '%s'",
+				kind, first, kind, i, channelID)
+		}
+
+		ids[channelID] = i
+	}
+
+	return ids, nil
+}
+
 func validateChannelRefs(cfg *NotificationConfig) error {
-	telegramChannels := make(map[string]bool)
-	for _, channel := range cfg.TelegramChannels {
-		telegramChannels[channel.ID] = true
+	telegramChannels, err := collectChannelIDs("telegram", cfg.TelegramChannels, func(c TelegramChannel) string { return c.ID })
+	if err != nil {
+		return err
 	}
 
-	discordChannels := make(map[string]bool)
-	for _, channel := range cfg.DiscordChannels {
-		discordChannels[channel.ID] = true
+	discordChannels, err := collectChannelIDs("discord", cfg.DiscordChannels, func(c DiscordChannel) string { return c.ID })
+	if err != nil {
+		return err
 	}
 
-	opsgenieChannels := make(map[string]bool)
-	for _, channel := range cfg.OpsGenieChannels {
-		opsgenieChannels[channel.ID] = true
+	opsgenieChannels, err := collectChannelIDs("opsgenie", cfg.OpsGenieChannels, func(c OpsGenieChannel) string { return c.ID })
+	if err != nil {
+		return err
 	}
 
-	slackChannels := make(map[string]bool)
-	for _, channel := range cfg.SlackChannels {
-		slackChannels[channel.ID] = true
+	slackChannels, err := collectChannelIDs("slack", cfg.SlackChannels, func(c SlackChannel) string { return c.ID })
+	if err != nil {
+		return err
 	}
 
 	for _, consumer := range cfg.Consumers {
