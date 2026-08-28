@@ -8,10 +8,26 @@ import (
 	"github.com/lidofinance/onchain-mon/internal/utils/registry"
 )
 
+func telegramChannel(id string) TelegramChannel {
+	return TelegramChannel{ID: id, BotToken: "bot-token", ChatID: "chat-id"}
+}
+
+func discordChannel(id string) DiscordChannel {
+	return DiscordChannel{ID: id, WebhookURL: "https://discord.example/hook"}
+}
+
+func opsGenieChannel(id string) OpsGenieChannel {
+	return OpsGenieChannel{ID: id, APIKey: "api-key"}
+}
+
+func slackChannel(id string) SlackChannel {
+	return SlackChannel{ID: id, WebhookURL: "https://slack.example/hook"}
+}
+
 func validConfig() *NotificationConfig {
 	return &NotificationConfig{
 		SeverityLevels:   []SeverityLevel{{ID: "Critical"}, {ID: "High"}},
-		TelegramChannels: []TelegramChannel{{ID: "tg1"}},
+		TelegramChannels: []TelegramChannel{telegramChannel("tg1")},
 		Consumers: []*Consumer{{
 			ConsumerName: "alerts",
 			Type:         registry.Telegram,
@@ -151,7 +167,7 @@ func Test_config_is_rejected_when(t *testing.T) {
 			name: "opsgenie_consumer_with_undeliverable_severity",
 			mutate: func(c *NotificationConfig) {
 				c.SeverityLevels = append(c.SeverityLevels, SeverityLevel{ID: "Medium"})
-				c.OpsGenieChannels = []OpsGenieChannel{{ID: "og1"}}
+				c.OpsGenieChannels = []OpsGenieChannel{opsGenieChannel("og1")}
 				c.Consumers[0].Type = registry.OpsGenie
 				c.Consumers[0].ChannelID = "og1"
 				c.Consumers[0].Severities = []string{"Critical", "Medium"}
@@ -161,30 +177,65 @@ func Test_config_is_rejected_when(t *testing.T) {
 		{
 			name: "duplicated_telegram_channel_id",
 			mutate: func(c *NotificationConfig) {
-				c.TelegramChannels = append(c.TelegramChannels, TelegramChannel{ID: "tg1", ChatID: "someone-else"})
+				c.TelegramChannels = append(c.TelegramChannels, TelegramChannel{ID: "tg1", BotToken: "bot-token", ChatID: "someone-else"})
 			},
 			wantErr: "telegram_channels[0] and telegram_channels[1] both declare the id 'tg1'",
 		},
 		{
 			name: "duplicated_discord_channel_id",
 			mutate: func(c *NotificationConfig) {
-				c.DiscordChannels = []DiscordChannel{{ID: "dc1"}, {ID: "dc1"}}
+				c.DiscordChannels = []DiscordChannel{discordChannel("dc1"), discordChannel("dc1")}
 			},
 			wantErr: "discord_channels[0] and discord_channels[1] both declare the id 'dc1'",
 		},
 		{
 			name: "duplicated_opsgenie_channel_id",
 			mutate: func(c *NotificationConfig) {
-				c.OpsGenieChannels = []OpsGenieChannel{{ID: "og1"}, {ID: "og1"}}
+				c.OpsGenieChannels = []OpsGenieChannel{opsGenieChannel("og-dup"), opsGenieChannel("og-dup")}
 			},
-			wantErr: "opsgenie_channels[0] and opsgenie_channels[1] both declare the id 'og1'",
+			wantErr: "opsgenie_channels[0] and opsgenie_channels[1] both declare the id 'og-dup'",
 		},
 		{
 			name: "duplicated_slack_channel_id",
 			mutate: func(c *NotificationConfig) {
-				c.SlackChannels = []SlackChannel{{ID: "sl1"}, {ID: "sl1"}}
+				c.SlackChannels = []SlackChannel{slackChannel("sl1"), slackChannel("sl1")}
 			},
 			wantErr: "slack_channels[0] and slack_channels[1] both declare the id 'sl1'",
+		},
+		{
+			name: "telegram_channel_without_bot_token",
+			mutate: func(c *NotificationConfig) {
+				c.TelegramChannels = []TelegramChannel{{ID: "tg1", ChatID: "chat-id"}}
+			},
+			wantErr: "telegram_channels[0] 'tg1' has an empty bot_token",
+		},
+		{
+			name: "telegram_channel_without_chat_id",
+			mutate: func(c *NotificationConfig) {
+				c.TelegramChannels = []TelegramChannel{{ID: "tg1", BotToken: "bot-token"}}
+			},
+			wantErr: "telegram_channels[0] 'tg1' has an empty chat_id",
+		},
+		{
+			name: "discord_channel_without_webhook_url",
+			mutate: func(c *NotificationConfig) {
+				c.DiscordChannels = []DiscordChannel{{ID: "dc1"}}
+			},
+			wantErr: "discord_channels[0] 'dc1' has an empty webhook_url",
+		},
+		{
+			name: "opsgenie_channel_without_api_key",
+			mutate: func(c *NotificationConfig) {
+				c.OpsGenieChannels = []OpsGenieChannel{{ID: "og1"}}
+			},
+			wantErr: "opsgenie_channels[0] 'og1' has an empty api_key",
+		},
+		{
+			name: "slack_channel_without_webhook_url",
+			mutate: func(c *NotificationConfig) {
+				c.SlackChannels = []SlackChannel{{ID: "sl1"}}
+			},
+			wantErr: "slack_channels[0] 'sl1' has an empty webhook_url",
 		},
 		{
 			name: "empty_channel_id",
@@ -255,7 +306,7 @@ func Test_every_canonical_severity_is_accepted(t *testing.T) {
 
 func Test_opsgenie_consumer_with_pageable_severities_passes(t *testing.T) {
 	cfg := validConfig()
-	cfg.OpsGenieChannels = []OpsGenieChannel{{ID: "og1"}}
+	cfg.OpsGenieChannels = []OpsGenieChannel{opsGenieChannel("og1")}
 	cfg.Consumers[0].Type = registry.OpsGenie
 	cfg.Consumers[0].ChannelID = "og1"
 	cfg.Consumers[0].Severities = []string{"High", "Critical"}
@@ -270,9 +321,9 @@ func Test_opsgenie_consumer_with_pageable_severities_passes(t *testing.T) {
 func Test_non_opsgenie_consumers_accept_every_severity(t *testing.T) {
 	for _, channel := range []registry.NotificationChannel{registry.Telegram, registry.Discord, registry.Slack} {
 		cfg := validConfig()
-		cfg.DiscordChannels = []DiscordChannel{{ID: "ch1"}}
-		cfg.SlackChannels = []SlackChannel{{ID: "ch1"}}
-		cfg.TelegramChannels = []TelegramChannel{{ID: "ch1"}}
+		cfg.DiscordChannels = []DiscordChannel{discordChannel("ch1")}
+		cfg.SlackChannels = []SlackChannel{slackChannel("ch1")}
+		cfg.TelegramChannels = []TelegramChannel{telegramChannel("ch1")}
 		cfg.Consumers[0].Type = channel
 		cfg.Consumers[0].ChannelID = "ch1"
 

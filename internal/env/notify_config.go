@@ -195,12 +195,61 @@ func validateUniqueConsumerNames(cfg *NotificationConfig) error {
 	return nil
 }
 
+type channelDecl interface {
+	id() string
+	validate() error
+}
+
+func (c TelegramChannel) id() string { return c.ID }
+
+func (c TelegramChannel) validate() error {
+	if c.BotToken == "" {
+		return errors.New("has an empty bot_token")
+	}
+
+	if c.ChatID == "" {
+		return errors.New("has an empty chat_id")
+	}
+
+	return nil
+}
+
+func (c DiscordChannel) id() string { return c.ID }
+
+func (c DiscordChannel) validate() error {
+	if c.WebhookURL == "" {
+		return errors.New("has an empty webhook_url")
+	}
+
+	return nil
+}
+
+func (c OpsGenieChannel) id() string { return c.ID }
+
+func (c OpsGenieChannel) validate() error {
+	if c.APIKey == "" {
+		return errors.New("has an empty api_key")
+	}
+
+	return nil
+}
+
+func (c SlackChannel) id() string { return c.ID }
+
+func (c SlackChannel) validate() error {
+	if c.WebhookURL == "" {
+		return errors.New("has an empty webhook_url")
+	}
+
+	return nil
+}
+
 // collectChannelIDs indexes the declarations of one channel type by id and rejects empty or duplicated ones
-func collectChannelIDs[T any](kind string, channels []T, id func(T) string) (map[string]int, error) {
+func collectChannelIDs[T channelDecl](kind string, channels []T) (map[string]int, error) {
 	ids := make(map[string]int, len(channels))
 
 	for i, channel := range channels {
-		channelID := id(channel)
+		channelID := channel.id()
 		if channelID == "" {
 			return nil, fmt.Errorf("%s_channels[%d] has an empty id", kind, i)
 		}
@@ -210,6 +259,10 @@ func collectChannelIDs[T any](kind string, channels []T, id func(T) string) (map
 				kind, first, kind, i, channelID)
 		}
 
+		if err := channel.validate(); err != nil {
+			return nil, fmt.Errorf("%s_channels[%d] '%s' %w", kind, i, channelID, err)
+		}
+
 		ids[channelID] = i
 	}
 
@@ -217,22 +270,22 @@ func collectChannelIDs[T any](kind string, channels []T, id func(T) string) (map
 }
 
 func validateChannelRefs(cfg *NotificationConfig) error {
-	telegramChannels, err := collectChannelIDs("telegram", cfg.TelegramChannels, func(c TelegramChannel) string { return c.ID })
+	telegramChannels, err := collectChannelIDs("telegram", cfg.TelegramChannels)
 	if err != nil {
 		return err
 	}
 
-	discordChannels, err := collectChannelIDs("discord", cfg.DiscordChannels, func(c DiscordChannel) string { return c.ID })
+	discordChannels, err := collectChannelIDs("discord", cfg.DiscordChannels)
 	if err != nil {
 		return err
 	}
 
-	opsgenieChannels, err := collectChannelIDs("opsgenie", cfg.OpsGenieChannels, func(c OpsGenieChannel) string { return c.ID })
+	opsgenieChannels, err := collectChannelIDs("opsgenie", cfg.OpsGenieChannels)
 	if err != nil {
 		return err
 	}
 
-	slackChannels, err := collectChannelIDs("slack", cfg.SlackChannels, func(c SlackChannel) string { return c.ID })
+	slackChannels, err := collectChannelIDs("slack", cfg.SlackChannels)
 	if err != nil {
 		return err
 	}
