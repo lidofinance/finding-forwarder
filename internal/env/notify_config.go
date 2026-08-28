@@ -15,9 +15,15 @@ import (
 	"github.com/lidofinance/onchain-mon/internal/utils/registry"
 )
 
-// SubjectParts is the minimum number of dot-separated parts in a findings
+// SubjectParts is the exact number of dot-separated parts in a findings
 // subject: findings.<team>.<bot>.
 const SubjectParts = 3
+
+// SubjectPrefix is the first part of every findings subject the bots publish to.
+const SubjectPrefix = "findings"
+
+// forbiddenSubjectChars are the NATS wildcards plus forbidden characters
+const forbiddenSubjectChars = "*> \t\r\n/\\"
 
 type SeverityLevel struct {
 	ID string `mapstructure:"id"`
@@ -139,17 +145,25 @@ func validateSubjects(cfg *NotificationConfig) error {
 		}
 
 		for _, subject := range consumer.Subjects {
-			// NewConsumers splits on "." and takes parts[1] and parts[2]; a
-			// shorter subject makes the forwarder fail on startup instead.
+			// The stream and the durable consumer filter on the raw subject
+			// while NewConsumers derives the durable name from parts[1] and
+			// parts[2] only. A wrong prefix or an extra part therefore builds a
+			// healthy-looking consumer subscribed to a subject nobody publishes
+			// to, so require the canonical shape instead.
 			parts := strings.Split(subject, ".")
-			if len(parts) < SubjectParts {
-				return fmt.Errorf("consumer '%s' has an invalid subject '%s', expected findings.<team>.<bot>",
-					consumer.ConsumerName, subject)
+			if len(parts) != SubjectParts || parts[0] != SubjectPrefix {
+				return fmt.Errorf("consumer '%s' has an invalid subject '%s', expected %s.<team>.<bot>",
+					consumer.ConsumerName, subject, SubjectPrefix)
 			}
 
-			for i, part := range parts[:SubjectParts] {
+			for i, part := range parts {
 				if part == "" {
 					return fmt.Errorf("consumer '%s' has an empty part %d in subject '%s'",
+						consumer.ConsumerName, i+1, subject)
+				}
+
+				if strings.ContainsAny(part, forbiddenSubjectChars) {
+					return fmt.Errorf("consumer '%s' has a forbidden character in part %d of subject '%s' (wildcards are not supported)",
 						consumer.ConsumerName, i+1, subject)
 				}
 			}

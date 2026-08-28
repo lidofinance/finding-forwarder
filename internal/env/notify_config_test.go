@@ -124,6 +124,31 @@ func Test_config_is_rejected_when(t *testing.T) {
 			wantErr: "empty part",
 		},
 		{
+			name:    "subject_with_wrong_prefix",
+			mutate:  func(c *NotificationConfig) { c.Consumers[0].Subjects = []string{"finding.team.bot"} },
+			wantErr: "invalid subject",
+		},
+		{
+			name:    "subject_with_extra_part",
+			mutate:  func(c *NotificationConfig) { c.Consumers[0].Subjects = []string{"findings.team.bot.alerts"} },
+			wantErr: "invalid subject",
+		},
+		{
+			name:    "subject_with_wildcard",
+			mutate:  func(c *NotificationConfig) { c.Consumers[0].Subjects = []string{"findings.team.*"} },
+			wantErr: "forbidden character",
+		},
+		{
+			name:    "subject_with_full_wildcard",
+			mutate:  func(c *NotificationConfig) { c.Consumers[0].Subjects = []string{"findings.team.>"} },
+			wantErr: "forbidden character",
+		},
+		{
+			name:    "subject_with_whitespace",
+			mutate:  func(c *NotificationConfig) { c.Consumers[0].Subjects = []string{"findings.team.my bot"} },
+			wantErr: "forbidden character",
+		},
+		{
 			// "a_b" + findings.x.y and "b" + findings.x_a.y both build the
 			// durable name x_a_b_y, so the two would share one NATS consumer.
 			name: "colliding_durable_names",
