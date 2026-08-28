@@ -241,10 +241,33 @@ func validateChannelRefs(cfg *NotificationConfig) error {
 	return nil
 }
 
-func validateSeverities(cfg *NotificationConfig) error {
-	validSeverities := make(registry.FindingMapping)
-	for _, severity := range cfg.SeverityLevels {
+func collectGlobalSeverities(cfg *NotificationConfig) (registry.FindingMapping, error) {
+	validSeverities := make(registry.FindingMapping, len(cfg.SeverityLevels))
+
+	for i, severity := range cfg.SeverityLevels {
+		if severity.ID == "" {
+			return nil, fmt.Errorf("severity_levels[%d] has an empty id", i)
+		}
+
+		if !registry.IsCanonicalSeverity(databus.Severity(severity.ID)) {
+			return nil, fmt.Errorf("severity_levels[%d] declares an unknown severity '%s', expected one of: %s",
+				i, severity.ID, registry.CanonicalSeverityList())
+		}
+
+		if validSeverities[databus.Severity(severity.ID)] {
+			return nil, fmt.Errorf("severity_levels[%d] duplicates severity '%s'", i, severity.ID)
+		}
+
 		validSeverities[databus.Severity(severity.ID)] = true
+	}
+
+	return validSeverities, nil
+}
+
+func validateSeverities(cfg *NotificationConfig) error {
+	validSeverities, err := collectGlobalSeverities(cfg)
+	if err != nil {
+		return err
 	}
 
 	for _, consumer := range cfg.Consumers {

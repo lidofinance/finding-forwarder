@@ -124,6 +124,29 @@ func Test_config_is_rejected_when(t *testing.T) {
 			},
 			wantErr: "durable name",
 		},
+		{
+			name: "global_severity_typo_matched_by_consumer",
+			mutate: func(c *NotificationConfig) {
+				c.SeverityLevels = []SeverityLevel{{ID: "Critcal"}}
+				c.Consumers[0].Severities = []string{"Critcal"}
+			},
+			wantErr: "unknown severity 'Critcal'",
+		},
+		{
+			name: "empty_global_severity_id",
+			mutate: func(c *NotificationConfig) {
+				c.SeverityLevels = []SeverityLevel{{ID: ""}}
+				c.Consumers[0].Severities = []string{""}
+			},
+			wantErr: "empty id",
+		},
+		{
+			name: "duplicated_global_severity",
+			mutate: func(c *NotificationConfig) {
+				c.SeverityLevels = []SeverityLevel{{ID: "Critical"}, {ID: "Critical"}}
+			},
+			wantErr: "duplicates severity 'Critical'",
+		},
 	}
 
 	for _, tt := range tests {
@@ -156,6 +179,29 @@ func Test_collect_nats_subjects_is_deduped_and_sorted(t *testing.T) {
 		if got[i] != want[i] {
 			t.Errorf("got %v, want %v", got, want)
 			break
+		}
+	}
+}
+
+func Test_every_canonical_severity_is_accepted(t *testing.T) {
+	levels := make([]SeverityLevel, 0, len(registry.CanonicalSeverities))
+	severities := make([]string, 0, len(registry.CanonicalSeverities))
+	for _, severity := range registry.CanonicalSeverities {
+		levels = append(levels, SeverityLevel{ID: string(severity)})
+		severities = append(severities, string(severity))
+	}
+
+	cfg := validConfig()
+	cfg.SeverityLevels = levels
+	cfg.Consumers[0].Severities = severities
+
+	if err := ValidateConfig(cfg); err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	for _, severity := range registry.CanonicalSeverities {
+		if !cfg.Consumers[0].SeveritySet[severity] {
+			t.Errorf("severity %q is missing from SeveritySet", severity)
 		}
 	}
 }
