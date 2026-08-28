@@ -2,6 +2,8 @@ package consumer
 
 import (
 	"context"
+	"errors"
+	"fmt"
 	"log/slog"
 	"os"
 	"sync"
@@ -15,6 +17,7 @@ import (
 
 	"github.com/lidofinance/onchain-mon/generated/databus"
 	"github.com/lidofinance/onchain-mon/internal/connectors/metrics"
+	"github.com/lidofinance/onchain-mon/internal/pkg/notifiler"
 	"github.com/lidofinance/onchain-mon/internal/utils/registry"
 )
 
@@ -26,16 +29,18 @@ const testRedisDB = 15
 
 type testMsg struct {
 	jetstream.Msg
-	payload []byte
-	acked   bool
-	nacked  bool
-	delay   time.Duration
-	settled bool
+	payload    []byte
+	acked      bool
+	nacked     bool
+	terminated bool
+	delay      time.Duration
+	settled    bool
 }
 
 func (m *testMsg) Data() []byte { return m.payload }
 func (m *testMsg) Ack() error   { m.acked = true; m.settled = true; return nil }
 func (m *testMsg) Nak() error   { m.nacked = true; m.settled = true; return nil }
+func (m *testMsg) Term() error  { m.terminated = true; m.settled = true; return nil }
 func (m *testMsg) NakWithDelay(d time.Duration) error {
 	m.nacked = true
 	m.delay = d
@@ -290,5 +295,43 @@ func Test_sending_status_key_expires_in_minutes_not_centuries(t *testing.T) {
 	ttl := rdb.TTL(ctx, statusKey).Val()
 	if ttl <= 0 || ttl > TTLMins12 {
 		t.Errorf("status key TTL: got %v, want at most %v", ttl, TTLMins12)
+	}
+}
+
+// A finding the channel can never deliver must be terminated, not nacked:
+// MaxAckPending is 1 for debug consumers and 6 for quorum ones, so redelivering
+// it 10 times would hold a slot the deliverable alerts need.
+func Test_settle_undeliverable_terminates_the_message(t *testing.T) {
+	c := newTestConsumer(nil, &stubNotifier{})
+	msg := &testMsg{}
+
+	sendErr := &notifiler.UndeliverableError{Err: fmt.Errorf("%w: nope", notifiler.ErrUndeliverable)}
+	if !c.settleUndeliverable(msg, testFinding("u-undeliverable"), sendErr, "quorum") {
+		t.Fatal("expected the undeliverable error to be handled")
+	}
+	if !msg.terminated {
+		t.Error("message must be terminated so JetStream never redelivers it")
+	}
+	if msg.nacked || msg.acked {
+		t.Errorf("message must not be nacked or acked, got nacked=%v acked=%v", msg.nacked, msg.acked)
+	}
+}
+
+// Every other send failure keeps the existing retry behavior, and the helper
+// must leave the message alone so the caller can settle it.
+func Test_settle_undeliverable_ignores_other_errors(t *testing.T) {
+	c := newTestConsumer(nil, &stubNotifier{})
+
+	for name, sendErr := range map[string]error{
+		"plain":        errors.New("boom"),
+		"rate_limited": &notifiler.RateLimitedError{ResetAfter: time.Second, Err: notifiler.ErrRateLimited},
+	} {
+		msg := &testMsg{}
+		if c.settleUndeliverable(msg, testFinding("u-"+name), sendErr, "quorum") {
+			t.Errorf("%s: helper must not claim the error", name)
+		}
+		if msg.settled {
+			t.Errorf("%s: message must be left for the caller to settle", name)
+		}
 	}
 }

@@ -147,6 +147,17 @@ func Test_config_is_rejected_when(t *testing.T) {
 			},
 			wantErr: "duplicates severity 'Critical'",
 		},
+		{
+			name: "opsgenie_consumer_with_undeliverable_severity",
+			mutate: func(c *NotificationConfig) {
+				c.SeverityLevels = append(c.SeverityLevels, SeverityLevel{ID: "Medium"})
+				c.OpsGenieChannels = []OpsGenieChannel{{ID: "og1"}}
+				c.Consumers[0].Type = registry.OpsGenie
+				c.Consumers[0].ChannelID = "og1"
+				c.Consumers[0].Severities = []string{"Critical", "Medium"}
+			},
+			wantErr: "cannot deliver severity 'Medium' to OpsGenie",
+		},
 	}
 
 	for _, tt := range tests {
@@ -202,6 +213,44 @@ func Test_every_canonical_severity_is_accepted(t *testing.T) {
 	for _, severity := range registry.CanonicalSeverities {
 		if !cfg.Consumers[0].SeveritySet[severity] {
 			t.Errorf("severity %q is missing from SeveritySet", severity)
+		}
+	}
+}
+
+func Test_opsgenie_consumer_with_pageable_severities_passes(t *testing.T) {
+	cfg := validConfig()
+	cfg.OpsGenieChannels = []OpsGenieChannel{{ID: "og1"}}
+	cfg.Consumers[0].Type = registry.OpsGenie
+	cfg.Consumers[0].ChannelID = "og1"
+	cfg.Consumers[0].Severities = []string{"High", "Critical"}
+
+	if err := ValidateConfig(cfg); err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+}
+
+// Only OpsGenie restricts severities, so the other channels must keep accepting
+// every canonical one.
+func Test_non_opsgenie_consumers_accept_every_severity(t *testing.T) {
+	for _, channel := range []registry.NotificationChannel{registry.Telegram, registry.Discord, registry.Slack} {
+		cfg := validConfig()
+		cfg.DiscordChannels = []DiscordChannel{{ID: "ch1"}}
+		cfg.SlackChannels = []SlackChannel{{ID: "ch1"}}
+		cfg.TelegramChannels = []TelegramChannel{{ID: "ch1"}}
+		cfg.Consumers[0].Type = channel
+		cfg.Consumers[0].ChannelID = "ch1"
+
+		levels := make([]SeverityLevel, 0, len(registry.CanonicalSeverities))
+		severities := make([]string, 0, len(registry.CanonicalSeverities))
+		for _, severity := range registry.CanonicalSeverities {
+			levels = append(levels, SeverityLevel{ID: string(severity)})
+			severities = append(severities, string(severity))
+		}
+		cfg.SeverityLevels = levels
+		cfg.Consumers[0].Severities = severities
+
+		if err := ValidateConfig(cfg); err != nil {
+			t.Errorf("%s: unexpected error: %v", channel, err)
 		}
 	}
 }

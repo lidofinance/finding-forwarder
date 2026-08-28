@@ -11,6 +11,7 @@ import (
 	"github.com/spf13/viper"
 
 	"github.com/lidofinance/onchain-mon/generated/databus"
+	"github.com/lidofinance/onchain-mon/internal/pkg/notifiler"
 	"github.com/lidofinance/onchain-mon/internal/utils/registry"
 )
 
@@ -264,6 +265,22 @@ func collectGlobalSeverities(cfg *NotificationConfig) (registry.FindingMapping, 
 	return validSeverities, nil
 }
 
+// validateChannelSeverities rejects severities the channel cannot actually deliver.
+func validateChannelSeverities(consumer *Consumer) error {
+	if consumer.Type != registry.OpsGenie {
+		return nil
+	}
+
+	for _, severity := range consumer.Severities {
+		if notifiler.OpsGeniePriority(databus.Severity(severity)) == "" {
+			return fmt.Errorf("consumer '%s' cannot deliver severity '%s' to OpsGenie, supported: %s",
+				consumer.ConsumerName, severity, notifiler.OpsGenieSeverityList())
+		}
+	}
+
+	return nil
+}
+
 func validateSeverities(cfg *NotificationConfig) error {
 	validSeverities, err := collectGlobalSeverities(cfg)
 	if err != nil {
@@ -285,6 +302,10 @@ func validateSeverities(cfg *NotificationConfig) error {
 				return fmt.Errorf("consumer '%s' references an unknown severity level '%s'", consumer.ConsumerName, severity)
 			}
 			severitySet[databus.Severity(severity)] = true
+		}
+
+		if err := validateChannelSeverities(consumer); err != nil {
+			return err
 		}
 
 		for _, alertID := range consumer.Filter {
