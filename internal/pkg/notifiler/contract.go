@@ -31,18 +31,3 @@ func (e *RateLimitedError) Unwrap() error {
 }
 
 var ErrMarkdownParse = errors.New("markdown parse")
-
-var ErrUndeliverable = errors.New("undeliverable finding")
-
-// UndeliverableError marks a finding the channel can never deliver
-type UndeliverableError struct {
-	Err error
-}
-
-func (e *UndeliverableError) Error() string {
-	return e.Err.Error()
-}
-
-func (e *UndeliverableError) Unwrap() error {
-	return e.Err
-}

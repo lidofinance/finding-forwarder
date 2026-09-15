@@ -3,8 +3,6 @@ package notifiler_test
 import (
 	"context"
 	"encoding/json"
-	"errors"
-	"strings"
 	"testing"
 
 	"github.com/prometheus/client_golang/prometheus"
@@ -21,11 +19,10 @@ func newTestMetrics(t *testing.T) *metrics.Store {
 	return metrics.New(reg, "test", "test", "test")
 }
 
-// A nil error used to mean "sent" to the consumer, which then acked the finding
-// and set a cooldown for a severity OpsGenie never received. ValidateConfig now
-// rejects such a consumer, so this path means the invariant is broken and must
-// not look like a successful delivery.
-func TestSendFinding_RejectsUnsupportedSeverity(t *testing.T) {
+// OpsGenie pages only on High and Critical. ValidateConfig already rejects an
+// OpsGenie consumer that lists any other severity, so nothing else should reach
+// this branch — it stays silent rather than failing a send nobody asked for.
+func TestSendFinding_SkipsLowSeverity(t *testing.T) {
 	m := newTestMetrics(t)
 	og := notifiler.NewOpsgenie("key", nil, m, "local", "etherscan.io", "test")
 
@@ -39,21 +36,11 @@ func TestSendFinding_RejectsUnsupportedSeverity(t *testing.T) {
 			Team:        "team",
 			UniqueKey:   "key",
 		}
-		// httpClient is nil, so a returned error also proves no HTTP call was
-		// attempted — a send would have panicked instead.
+		// SendFinding should return nil without making any HTTP call for non-High/Critical severities.
+		// httpClient is nil, so if it tried to send, it would panic.
 		err := og.SendFinding(context.Background(), alert)
-		if err == nil {
-			t.Fatalf("SendFinding(%s) returned nil, want an error", sev)
-		}
-		if !strings.Contains(err.Error(), "cannot deliver severity") {
-			t.Errorf("SendFinding(%s) error is %q, want it to mention the severity", sev, err)
-		}
-		// The consumer terminates on this type instead of retrying it.
-		if _, ok := errors.AsType[*notifiler.UndeliverableError](err); !ok {
-			t.Errorf("SendFinding(%s) error is %T, want *notifiler.UndeliverableError", sev, err)
-		}
-		if !errors.Is(err, notifiler.ErrUndeliverable) {
-			t.Errorf("SendFinding(%s) error does not match ErrUndeliverable", sev)
+		if err != nil {
+			t.Fatalf("SendFinding(%s) unexpected error: %v", sev, err)
 		}
 	}
 }

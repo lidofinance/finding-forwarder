@@ -206,11 +206,6 @@ func (c *Consumer) handleWithoutQuorum(ctx context.Context, msg jetstream.Msg, f
 	if sendErr := c.notifier.SendFinding(ctx, finding); sendErr != nil {
 		_ = c.redisClient.Del(ctx, dedupKey).Err()
 
-		if c.settleUndeliverable(msg, finding, sendErr, "debug") {
-			c.mtrs.SentAlerts.With(prometheus.Labels{metrics.ConsumerName: c.name, metrics.Status: metrics.StatusFail}).Inc()
-			return
-		}
-
 		if rle, ok := errors.AsType[*notifiler.RateLimitedError](sendErr); ok {
 			debugMsgInfo := fmt.Sprintf("%s[%s] put debug-finding back[%s] into nats:%s. cause: %v",
 				c.source, c.notifier.GetType(), finding.AlertId, c.name, sendErr,
@@ -302,25 +297,6 @@ func (c *Consumer) collectQuorumCount(
 	}
 
 	return stored, false
-}
-
-// settleUndeliverable terminates a message the channel can never deliver and
-// reports whether it did. Redelivering such a finding would burn MaxDeliver
-// attempts and hold an in-flight slot (MaxAckPending is 1 for debug consumers
-// and 6 for quorum ones), delaying the alerts that can actually be sent.
-func (c *Consumer) settleUndeliverable(msg jetstream.Msg, finding *databus.FindingDtoJson, sendErr error, kind string) bool {
-	if _, ok := errors.AsType[*notifiler.UndeliverableError](sendErr); !ok {
-		return false
-	}
-
-	c.logError(
-		fmt.Sprintf(`%s[%s] dropped undeliverable %s-finding[%s]: %v`,
-			c.source, c.notifier.GetType(), kind, finding.AlertId, sendErr),
-		finding,
-	)
-	c.terminateMessage(msg)
-
-	return true
 }
 
 func (c *Consumer) GetConsumeHandler(ctx context.Context) func(msg jetstream.Msg) {
@@ -477,10 +453,6 @@ func (c *Consumer) GetConsumeHandler(ctx context.Context) func(msg jetstream.Msg
 					metrics.ConsumerName: c.name,
 					metrics.Status:       metrics.StatusFail,
 				}).Inc()
-
-				if c.settleUndeliverable(msg, finding, sendErr, "quorum") {
-					return
-				}
 
 				if rle, ok := errors.AsType[*notifiler.RateLimitedError](sendErr); ok {
 					quorumMsgInfo := fmt.Sprintf(

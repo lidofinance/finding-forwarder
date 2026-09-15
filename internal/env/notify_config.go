@@ -259,8 +259,8 @@ func (c SlackChannel) validate() error {
 }
 
 // collectChannelIDs indexes the declarations of one channel type by id and rejects empty or duplicated ones
-func collectChannelIDs[T channelDecl](kind string, channels []T) (map[string]int, error) {
-	ids := make(map[string]int, len(channels))
+func collectChannelIDs[T channelDecl](kind string, channels []T) (map[string]struct{}, error) {
+	firstSeen := make(map[string]int, len(channels))
 
 	for i, channel := range channels {
 		channelID := channel.id()
@@ -268,7 +268,7 @@ func collectChannelIDs[T channelDecl](kind string, channels []T) (map[string]int
 			return nil, fmt.Errorf("%s_channels[%d] has an empty id", kind, i)
 		}
 
-		if first, exists := ids[channelID]; exists {
+		if first, exists := firstSeen[channelID]; exists {
 			return nil, fmt.Errorf("%s_channels[%d] and %s_channels[%d] both declare the id '%s'",
 				kind, first, kind, i, channelID)
 		}
@@ -277,7 +277,12 @@ func collectChannelIDs[T channelDecl](kind string, channels []T) (map[string]int
 			return nil, fmt.Errorf("%s_channels[%d] '%s' %w", kind, i, channelID, err)
 		}
 
-		ids[channelID] = i
+		firstSeen[channelID] = i
+	}
+
+	ids := make(map[string]struct{}, len(firstSeen))
+	for channelID := range firstSeen {
+		ids[channelID] = struct{}{}
 	}
 
 	return ids, nil

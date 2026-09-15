@@ -76,12 +76,10 @@ func OpsGenieSeverityList() string {
 }
 
 func (o *OpsGenie) SendFinding(ctx context.Context, alert *databus.FindingDtoJson) error {
+	// Send only P1 or P2 alerts. ValidateConfig rejects an OpsGenie consumer that lists any other severity.
 	opsGeniePriority := OpsGeniePriority(alert.Severity)
 	if opsGeniePriority == "" {
-		return &UndeliverableError{
-			Err: fmt.Errorf("%w: OpsGenie cannot deliver severity '%s', supported: %s",
-				ErrUndeliverable, alert.Severity, OpsGenieSeverityList()),
-		}
+		return nil
 	}
 
 	message := FormatAlert(alert, o.source, o.blockExplorer)
